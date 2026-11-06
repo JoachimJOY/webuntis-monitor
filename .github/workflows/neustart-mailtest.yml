@@ -1,0 +1,90 @@
+name: Untis Neustart und Mailtest
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: write
+concurrency:
+  group: webuntis-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  reset-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      WEBUNTIS_SCHOOL: ${{ secrets.WEBUNTIS_SCHOOL }}
+      WEBUNTIS_USERNAME: ${{ secrets.WEBUNTIS_USERNAME }}
+      WEBUNTIS_PASSWORD: ${{ secrets.WEBUNTIS_PASSWORD }}
+      WEBUNTIS_PERSON_ID: ${{ secrets.WEBUNTIS_PERSON_ID }}
+      WEBUNTIS_PERSON_TYPE: ${{ secrets.WEBUNTIS_PERSON_TYPE }}
+      SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      MAIL_TO: ${{ secrets.MAIL_TO }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install cryptography==50.0.2
+      - name: Voraussetzungen und Tests pruefen
+        run: |
+          python -m unittest -q
+          python -c "import email_monitor; email_monitor.settings()"
+      - name: Ausschliesslich Detail-Caches auf main leeren
+        uses: actions/github-script@v7
+        with:
+          script: |
+            if (context.ref !== 'refs/heads/main') {
+              throw new Error('Diesen Test ausschliesslich auf main starten.');
+            }
+            const prefix = 'untis-details-v2-';
+            const caches = await github.paginate("GET /repos/{owner}/{repo}/actions/caches", {
+              ...context.repo, ref: context.ref, key: prefix, per_page: 100
+            });
+            const targets = caches.filter(cache =>
+              cache.ref === context.ref && cache.key.startsWith(prefix)
+            );
+            for (const cache of targets) {
+              await github.request("DELETE /repos/{owner}/{repo}/actions/caches/{cache_id}", {
+                ...context.repo, cache_id: cache.id
+              });
+            }
+            core.info(targets.length + ' Detail-Caches geloescht.');
+      - name: Echter Abruf und Initialisierungsmail
+        run: python detailed_monitor.py
+      - name: Neuen echten Vergleichsstand speichern
+        uses: actions/cache/save@v4
+        with:
+          path: .state-details
+          key: untis-details-v2-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Isolierte Aenderung simulieren und zweite E-Mail senden
+        run: |
+          python - <<'PY'
+          import datetime as dt
+          from zoneinfo import ZoneInfo
+          import detailed_monitor as detail
+          import email_monitor
+          
+          today = dt.datetime.now(ZoneInfo("Europe/Berlin")).date()
+          date = int(today.strftime("%Y%m%d"))
+          subjects = [{"id": 90001, "longName": "Differenzierungsstunde"},
+                      {"id": 90002, "longName": "Deutsch"}]
+          original = {"id": 90001, "date": date, "startTime": 1005, "endTime": 1050,
+                      "su": [{"id": 90001}], "code": ""}
+          before = detail.normalize([original], subjects, today)
+          after = detail.normalize([
+              {**original, "code": "cancelled"},
+              {**original, "id": 90002, "su": [{"id": 90002}], "code": "irregular"}
+          ], subjects, today)
+          message = detail.report(before, after)
+          if not message or "Die Stunde entfällt" not in message or "Neu im Stundenplan: Deutsch" not in message:
+              raise RuntimeError("Simulation hat den erwarteten Fachwechsel nicht erkannt.")
+          if detail.report(after, after) is not None:
+              raise RuntimeError("Unveraenderter Folgestand wuerde eine weitere Meldung erzeugen.")
+          email_monitor.notify(
+              "SIMULATION – KEINE ECHTE STUNDENPLANÄNDERUNG\n\n"
+              "Die folgenden Angaben sind künstliche Testdaten. Datum und Uhrzeit gehören nur zum Test.\n"
+              "Der echte Stundenplan und sein neu gespeicherter Vergleichsstand bleiben unverändert.\n\n"
+              + message)
+          print("WEB.DE hat die Simulationsmail fuer alle Empfaenger angenommen.")
+          PY
