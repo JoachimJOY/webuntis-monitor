@@ -1,0 +1,89 @@
+name: Untis Wochenabgleich
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Deutsch und Englisch auf Ausfall pruefen
+        env:
+          WEBUNTIS_SCHOOL: ${{ secrets.WEBUNTIS_SCHOOL }}
+          WEBUNTIS_USERNAME: ${{ secrets.WEBUNTIS_USERNAME }}
+          WEBUNTIS_PASSWORD: ${{ secrets.WEBUNTIS_PASSWORD }}
+          WEBUNTIS_PERSON_ID: ${{ secrets.WEBUNTIS_PERSON_ID }}
+          WEBUNTIS_PERSON_TYPE: ${{ secrets.WEBUNTIS_PERSON_TYPE }}
+        run: |
+          python - <<'PY'
+          """Read-only check of the two cancellations supplied by the user."""
+          import os
+          import monitor
+          
+          def evaluate(entries, subjects):
+              names = {str(s["id"]): {str(s.get("name", "")).casefold(),
+                                      str(s.get("longName", "")).casefold()} for s in subjects}
+              targets = [(20261102, "Deutsch", {"d", "deutsch", "german"}),
+                         (20261106, "Englisch", {"e", "englisch", "english"})]
+              results = []
+              for date, label, aliases in targets:
+                  matching = [e for e in entries if int(e["date"]) == date and any(
+                      names.get(str(s.get("id")), set()) & aliases for s in e.get("su", []))]
+                  cancelled = [e for e in matching if str(e.get("code", "")).casefold() == "cancelled"]
+                  results.append((date, label, bool(matching), sorted(set(
+                      (int(e["startTime"]), int(e["endTime"])) for e in cancelled))))
+              return results
+          
+          def main():
+              school = os.environ["WEBUNTIS_SCHOOL"]
+              login = monitor.rpc("authenticate", {
+                  "user": os.environ["WEBUNTIS_USERNAME"],
+                  "password": os.environ["WEBUNTIS_PASSWORD"], "client": "webuntis-week-check"}, school)
+              session = login["sessionId"]
+              try:
+                  person_id = int(os.environ.get("WEBUNTIS_PERSON_ID") or login.get("personId", 0))
+                  person_type = int(os.environ.get("WEBUNTIS_PERSON_TYPE") or login.get("personType", 0))
+                  if person_id <= 0 or person_type not in (1, 2, 5):
+                      raise monitor.MonitorError("Schuelerzuordnung fehlt.")
+                  entries = monitor.rpc("getTimetable", {"options": {
+                      "element": {"id": person_id, "type": person_type},
+                      "startDate": 20261102, "endDate": 20261108,
+                      "onlyBaseTimetable": False, "showSubstText": True,
+                      "showInfo": True}}, school, session)
+                  if not isinstance(entries, list) or not entries:
+                      raise monitor.MonitorError("Keine Stundenplandaten fuer die Testwoche erhalten.")
+                  subjects = monitor.rpc("getSubjects", {}, school, session)
+                  if not isinstance(subjects, list):
+                      raise monitor.MonitorError("Fachnamen nicht verfuegbar; Abgleich nicht moeglich.")
+                  print("API-Abgleich fuer 02.-08.11.2026:")
+                  for date, label, present, times in evaluate(entries, subjects):
+                      day = str(date)
+                      day = day[6:8] + "." + day[4:6] + "." + day[:4]
+                      if times:
+                          formatted = ", ".join(f"{a//100:02d}:{a%100:02d}-{b//100:02d}:{b%100:02d}" for a,b in times)
+                          print(f"BESTAETIGT: {label} am {day}: Ausfall {formatted} (API-Code cancelled).")
+                      elif present:
+                          print(f"NICHT BESTAETIGT: {label} am {day}: gefunden, aber kein Ausfallcode.")
+                      else:
+                          print(f"NICHT PRUEFBAR: {label} am {day}: kein zuordenbarer Eintrag.")
+              finally:
+                  try:
+                      monitor.rpc("logout", {}, school, session)
+                  except Exception:
+                      pass
+          
+          if __name__ == "__main__":
+              try:
+                  main()
+              except monitor.MonitorError as error:
+                  print("::error::" + str(error))
+                  raise SystemExit(1)
+              except Exception:
+                  print("::error::Wochenabgleich fehlgeschlagen; keine privaten Rohdaten ausgegeben.")
+                  raise SystemExit(1)
+          PY
