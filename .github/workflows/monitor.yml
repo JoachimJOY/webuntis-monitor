@@ -20,6 +20,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install encrypted comparison support
+        run: python -m pip install cryptography==50.0.2
       - run: python -m unittest -v
   monitor:
     needs: test
@@ -40,16 +42,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Restore comparison hashes
+      - name: Install encrypted comparison support
+        run: python -m pip install cryptography==50.0.2
+      - name: Restore encrypted comparison
         uses: actions/cache/restore@v4
         with:
-          path: .state
-          key: untis-v1-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: untis-v1-
+          path: .state-details
+          key: untis-details-v2-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: untis-details-v2-
       - name: Check timetable
-        run: python email_monitor.py
-      - name: Save comparison hashes after success
+        run: python detailed_monitor.py
+      - name: Save encrypted comparison after success
         uses: actions/cache/save@v4
         with:
-          path: .state
-          key: untis-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .state-details
+          key: untis-details-v2-${{ github.run_id }}-${{ github.run_attempt }}
