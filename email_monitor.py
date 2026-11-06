@@ -30,19 +30,28 @@ def notify(text):
     message["Date"] = formatdate(localtime=False)
     message["Message-ID"] = make_msgid(domain=sender.rsplit("@", 1)[1])
     message.set_content(text + "\n\nStundenplan ansehen:\n" + monitor.SERVER + "/WebUntis/\n")
+    stage = "Verbindungsaufbau"
     try:
         with smtplib.SMTP("smtp.web.de", 587, timeout=30) as connection:
             connection.ehlo()
+            stage = "TLS-Aufbau"
             connection.starttls(context=ssl.create_default_context())
             connection.ehlo()
+            stage = "Anmeldung"
             connection.login(sender, password)
+            stage = "Nachrichtenversand"
             refused = connection.send_message(message, from_addr=sender, to_addrs=recipients)
             if refused:
                 raise monitor.MonitorError("WEB.DE hat nicht alle Empfaenger angenommen. Vergleichsstand bleibt erhalten.")
+            stage = "Verbindungsabschluss"
     except smtplib.SMTPAuthenticationError:
         raise monitor.MonitorError("WEB.DE-Anmeldung abgelehnt. SMTP_USERNAME, App-Passwort und Freigabe fuer externe Programme pruefen.") from None
-    except (smtplib.SMTPException, OSError):
-        raise monitor.MonitorError("E-Mail-Versand fehlgeschlagen. Vergleichsstand bleibt erhalten.") from None
+    except (smtplib.SMTPException, OSError) as error:
+        code = getattr(error, "smtp_code", None)
+        details = type(error).__name__
+        if isinstance(code, int):
+            details += ", SMTP " + str(code)
+        raise monitor.MonitorError("E-Mail-Fehler bei " + stage + " (" + details + "). Vergleichsstand bleibt erhalten.") from None
 
 def main(test=False):
     settings()
