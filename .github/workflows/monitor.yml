@@ -32,7 +32,9 @@ jobs:
       WEBUNTIS_PASSWORD: ${{ secrets.WEBUNTIS_PASSWORD }}
       WEBUNTIS_PERSON_ID: ${{ secrets.WEBUNTIS_PERSON_ID }}
       WEBUNTIS_PERSON_TYPE: ${{ secrets.WEBUNTIS_PERSON_TYPE }}
-      NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+      SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      MAIL_TO: ${{ secrets.MAIL_TO }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -45,7 +47,7 @@ jobs:
           key: untis-v1-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: untis-v1-
       - name: Check timetable
-        run: python monitor.py
+        run: python email_monitor.py
       - name: Save comparison hashes after success
         uses: actions/cache/save@v4
         with:
