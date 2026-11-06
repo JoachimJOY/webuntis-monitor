@@ -5,6 +5,9 @@ import json
 import os
 import re
 import sys
+import time
+import ssl
+from urllib.error import HTTPError, URLError
 from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.parse import urlencode
@@ -57,11 +60,37 @@ def rpc(method, params, school, session=None):
         headers["Cookie"] = "JSESSIONID=" + session
     body = json.dumps({"id": "monitor", "jsonrpc": "2.0", "method": method,
                        "params": params}).encode()
-    with urlopen(Request(endpoint, data=body, headers=headers), timeout=30) as response:
-        payload = json.load(response)
-    if not isinstance(payload, dict) or "result" not in payload or "error" in payload:
-        raise MonitorError("WebUntis lehnt " + method + " ab. Anmeldung, Schulkennung und API-Rechte pruefen.")
-    return payload["result"]
+    # Retry read requests only. Never repeat a rejected login automatically.
+    attempts = 3 if method in ("getTimetable", "getSubjects") else 1
+    for attempt in range(attempts):
+        delay = 2 ** (attempt + 1)
+        try:
+            with urlopen(Request(endpoint, data=body, headers=headers), timeout=30) as response:
+                payload = json.load(response)
+        except HTTPError as error:
+            retryable = error.code in (429, 502, 503, 504)
+            if retryable and attempt + 1 < attempts:
+                retry_after = error.headers.get("Retry-After", "") if error.headers else ""
+                if str(retry_after).isdigit():
+                    delay = min(max(int(retry_after), 1), 30)
+                print("Verbindungswiederholung bei " + method + " (HTTP " + str(error.code) + ").")
+                time.sleep(delay)
+                continue
+            raise MonitorError("WebUntis-Abruf " + method + " fehlgeschlagen (HTTP " +
+                               str(error.code) + "). Vergleichsstand bleibt erhalten.") from None
+        except (URLError, TimeoutError, ConnectionError) as error:
+            reason = error.reason if isinstance(error, URLError) else error
+            reason_name = type(reason).__name__
+            if not isinstance(reason, ssl.SSLCertVerificationError) and attempt + 1 < attempts:
+                print("Verbindungswiederholung bei " + method + " (" + reason_name + ").")
+                time.sleep(delay)
+                continue
+            raise MonitorError("Netzwerkfehler bei " + method + " (" + reason_name +
+                               "). Vergleichsstand bleibt erhalten.") from None
+        if not isinstance(payload, dict) or "result" not in payload or "error" in payload:
+            raise MonitorError("WebUntis lehnt " + method + " ab. Anmeldung, Schulkennung und API-Rechte pruefen.")
+        return payload["result"]
+
 
 def fetch_entries(start):
     school = os.environ["WEBUNTIS_SCHOOL"]
