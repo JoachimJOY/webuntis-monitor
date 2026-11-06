@@ -59,6 +59,9 @@ if __name__ == "__main__":
     except monitor.MonitorError as error:
         print("::error::" + str(error))
         raise SystemExit(1)
-    except Exception:
-        print("::error::E-Mail-Monitor fehlgeschlagen. Keine privaten Daten ausgegeben.")
+    except Exception as error:
+        import traceback
+        print("::error::Fehlertyp: " + type(error).__name__)
+        for frame in traceback.extract_tb(error.__traceback__):
+            print(f"Fehlerstelle: {frame.name}, Zeile {frame.lineno}")
         raise SystemExit(1)
