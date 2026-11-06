@@ -1,0 +1,20 @@
+name: WEB.DE E-Mail-Test
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  email:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Testmail an beide Empfaenger
+        env:
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+        run: python email_monitor.py --test-email
