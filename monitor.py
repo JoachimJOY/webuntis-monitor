@@ -60,8 +60,8 @@ def rpc(method, params, school, session=None):
         headers["Cookie"] = "JSESSIONID=" + session
     body = json.dumps({"id": "monitor", "jsonrpc": "2.0", "method": method,
                        "params": params}).encode()
-    # Retry read requests only. Never repeat a rejected login automatically.
-    attempts = 3 if method in ("getTimetable", "getSubjects") else 1
+    # Retry transient transport failures, including login. Never repeat rejected credentials.
+    attempts = 3 if method in ("authenticate", "getTimetable", "getSubjects") else 1
     for attempt in range(attempts):
         delay = 2 ** (attempt + 1)
         try:
