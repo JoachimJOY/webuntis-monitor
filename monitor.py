@@ -98,8 +98,10 @@ def notify(message):
         if response.status != 200:
             raise MonitorError("Push-Zustellung nicht bestaetigt.")
 
-def run(state_path=STATE, today=None):
-    required = ("WEBUNTIS_SCHOOL", "WEBUNTIS_USERNAME", "WEBUNTIS_PASSWORD", "NTFY_TOPIC")
+def run(state_path=STATE, today=None, notifier=None, extra_required=None):
+    send = notifier if notifier is not None else notify
+    extras = ("NTFY_TOPIC",) if extra_required is None else tuple(extra_required)
+    required = ("WEBUNTIS_SCHOOL", "WEBUNTIS_USERNAME", "WEBUNTIS_PASSWORD") + extras
     missing = [k for k in required if not os.environ.get(k)]
     if missing:
         raise MonitorError("Einrichtung fehlt: " + ", ".join(missing))
@@ -115,12 +117,12 @@ def run(state_path=STATE, today=None):
         if saved.get("identity") == identity:
             previous = saved["days"]
     if previous is None or not set(previous).intersection(current):
-        notify("Ueberwachung neu initialisiert. Die naechsten 14 Tage werden stuendlich verglichen. Dies ist zugleich der Push-Test.")
+        send("Ueberwachung neu initialisiert. Die naechsten 14 Tage werden stuendlich verglichen. Dies ist die Bestaetigung der Einrichtung.")
     else:
         changes = changed_days(previous, current)
         if changes:
             dates = ", ".join(dt.datetime.strptime(d, "%Y%m%d").strftime("%d.%m.") for d in changes)
-            notify("Stundenplan geaendert am " + dates + ". Bitte Details in Untis ansehen.")
+            send("Stundenplan geaendert am " + dates + ". Bitte Details in Untis ansehen.")
     # Persist only after successful delivery; a failed push is retried next run.
     state_path.parent.mkdir(parents=True, exist_ok=True)
     temporary = state_path.with_suffix(".tmp")
