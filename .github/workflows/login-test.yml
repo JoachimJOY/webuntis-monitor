@@ -1,0 +1,75 @@
+name: Untis Login-Test
+
+on:
+
+  workflow_dispatch:
+
+permissions:
+
+  contents: read
+
+jobs:
+
+  login:
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 3
+
+    steps:
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+
+        with:
+
+          python-version: '3.12'
+
+      - name: Anmeldung und Stundenplan testen
+
+        env:
+
+          WEBUNTIS_SCHOOL: ${{ secrets.WEBUNTIS_SCHOOL }}
+
+          WEBUNTIS_USERNAME: ${{ secrets.WEBUNTIS_USERNAME }}
+
+          WEBUNTIS_PASSWORD: ${{ secrets.WEBUNTIS_PASSWORD }}
+
+          WEBUNTIS_PERSON_ID: ${{ secrets.WEBUNTIS_PERSON_ID }}
+
+          WEBUNTIS_PERSON_TYPE: ${{ secrets.WEBUNTIS_PERSON_TYPE }}
+
+        run: |
+
+          python - <<'PY'
+
+          import datetime
+
+          from zoneinfo import ZoneInfo
+
+          import monitor
+
+          try:
+
+              today = datetime.datetime.now(ZoneInfo("Europe/Berlin")).date()
+
+              entries = monitor.fetch_entries(today)
+
+              monitor.snapshot(entries, today)
+
+              print("ERFOLG: Anmeldung und Stundenplanabruf funktionieren.")
+
+          except monitor.MonitorError as error:
+
+              print("::error::" + str(error))
+
+              raise SystemExit(1)
+
+          except Exception:
+
+              print("::error::Login-Test fehlgeschlagen. Konfiguration oder Verbindung pruefen.")
+
+              raise SystemExit(1)
+
+          PY
