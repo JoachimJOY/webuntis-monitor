@@ -105,8 +105,24 @@ class DetailPersistenceTests(unittest.TestCase):
         self.invoke(changed,messages.append)
         self.assertEqual(len(messages),2)
         self.assertIn("Fach gewechselt",messages[-1])
+        self.assertIn("Vom Monitor erkannt am", messages[-1])
+        self.assertIn("Seit dem vorherigen Abruf am", messages[-1])
+        self.assertIn("Der genaue Änderungszeitpunkt der Schule ist unbekannt.", messages[-1])
         self.invoke(changed,messages.append)
         self.assertEqual(len(messages),2)
+
+    def test_legacy_snapshot_without_observation_time(self):
+        messages = []
+        self.invoke([BASE], messages.append)
+        password = os.environ["SMTP_PASSWORD"]
+        saved = detail.decrypt_state(self.path.read_bytes(), password)
+        del saved["observed_at"]
+        self.path.write_bytes(detail.encrypt_state(saved, password))
+
+        self.invoke([{**BASE, "code": "cancelled"}], messages.append)
+
+        self.assertIn("Vom Monitor erkannt am", messages[-1])
+        self.assertNotIn("Seit dem vorherigen Abruf am", messages[-1])
 
     def test_send_failure_keeps_state(self):
         self.invoke([BASE],lambda text:None)

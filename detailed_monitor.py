@@ -179,6 +179,16 @@ def decrypt_state(blob, password):
         raise monitor.MonitorError(
             "Detail-Vergleichsstand nicht lesbar. Nach App-Passwortwechsel den Cache untis-details-v2 bewusst loeschen; danach wird neu initialisiert.") from None
 
+def observation_text(previous_at, current_at):
+    berlin = ZoneInfo("Europe/Berlin")
+    current = current_at.astimezone(berlin).strftime("%d.%m.%Y um %H:%M Uhr (%Z)")
+    text = "Vom Monitor erkannt am " + current + "."
+    if previous_at is not None:
+        previous = dt.datetime.fromisoformat(previous_at).astimezone(berlin)
+        text += "\nSeit dem vorherigen Abruf am " + previous.strftime("%d.%m.%Y um %H:%M Uhr (%Z)") + "."
+    return text + "\nDer genaue Änderungszeitpunkt der Schule ist unbekannt."
+
+
 def run(path=STATE, today=None, sender=None):
     email_monitor.settings()
     required = ("WEBUNTIS_SCHOOL", "WEBUNTIS_USERNAME", "WEBUNTIS_PASSWORD")
@@ -187,17 +197,20 @@ def run(path=STATE, today=None, sender=None):
         raise monitor.MonitorError("Einrichtung fehlt: " + ", ".join(missing))
     start = today or dt.datetime.now(ZoneInfo("Europe/Berlin")).date()
     entries, subjects = fetch_data(start)
+    observed_at = dt.datetime.now(dt.timezone.utc)
     current = normalize(entries, subjects, start)
     identity = monitor.digest([monitor.SERVER, os.environ["WEBUNTIS_SCHOOL"],
         os.environ["WEBUNTIS_USERNAME"], os.environ.get("WEBUNTIS_PERSON_ID"),
         os.environ.get("WEBUNTIS_PERSON_TYPE")])
     previous = None
+    previous_at = None
     if path.exists():
         saved = decrypt_state(path.read_bytes(), os.environ["SMTP_PASSWORD"])
         if saved.get("version") != 2 or not isinstance(saved.get("days"), dict):
             raise monitor.MonitorError("Ungueltiger Detail-Vergleichsstand.")
         if saved.get("identity") == identity:
             previous = saved["days"]
+            previous_at = saved.get("observed_at")
     send = sender if sender is not None else email_monitor.notify
     if previous is None or not set(previous).intersection(current):
         send("Die ausführliche Stundenplanüberwachung ist eingerichtet. Ab jetzt werden Fach, Uhrzeit, "
@@ -206,9 +219,11 @@ def run(path=STATE, today=None, sender=None):
     else:
         message = report(previous, current)
         if message:
-            send(message)
-    encrypted = encrypt_state({"version": 2, "identity": identity, "days": current},
-                              os.environ["SMTP_PASSWORD"])
+            send(message + "\n\n" + observation_text(previous_at, observed_at))
+    encrypted = encrypt_state(
+        {"version": 2, "identity": identity, "days": current, "observed_at": observed_at.isoformat()},
+        os.environ["SMTP_PASSWORD"],
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".tmp")
     temporary.write_bytes(encrypted)
