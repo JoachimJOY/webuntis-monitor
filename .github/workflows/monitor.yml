@@ -1,12 +1,7 @@
 name: WebUntis Monitor
 on:
   schedule:
-    # The Sunday 09:00 slot also sends the weekly status email.
-    - cron: '0 * * * 1-6'
-      timezone: Europe/Berlin
-    - cron: '0 0-8,10-23 * * 0'
-      timezone: Europe/Berlin
-    - cron: '0 9 * * 0'
+    - cron: '0 * * * *'
       timezone: Europe/Berlin
   workflow_dispatch:
   push:
@@ -63,8 +58,24 @@ jobs:
         with:
           path: .state-details
           key: untis-details-v2-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Check Sunday status window
+        id: weekly_status
+        if: github.event_name == 'schedule'
+        run: |
+          read -r weekday hour local_date < <(TZ=Europe/Berlin date '+%u %H %F')
+          if [[ "$weekday" == 7 ]] && (( 10#$hour >= 9 )); then
+            echo "cache_key=untis-weekly-status-v1-$local_date" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Check if Sunday email was already sent
+        id: weekly_status_cache
+        if: steps.weekly_status.outputs.cache_key != ''
+        uses: actions/cache/restore@v4
+        with:
+          path: .state-weekly-status/sent
+          key: ${{ steps.weekly_status.outputs.cache_key }}
+          lookup-only: true
       - name: Send weekly WebUntis status email
-        if: github.event_name == 'schedule' && github.event.schedule == '0 9 * * 0'
+        if: steps.weekly_status.outputs.cache_key != '' && steps.weekly_status_cache.outputs.cache-hit != 'true'
         run: |
           python - <<'PY'
           from email_monitor import notify
@@ -74,3 +85,11 @@ jobs:
               "Der Stundenplan wurde erfolgreich abgerufen und geprüft."
           )
           PY
+          mkdir -p .state-weekly-status
+          touch .state-weekly-status/sent
+      - name: Remember successful Sunday email
+        if: steps.weekly_status.outputs.cache_key != '' && steps.weekly_status_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .state-weekly-status/sent
+          key: ${{ steps.weekly_status.outputs.cache_key }}

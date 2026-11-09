@@ -37,7 +37,7 @@ Ohne passende Zuordnung bricht der Monitor ab.
 4. Öffne [Actions → WebUntis Monitor](https://github.com/JoachimJOY/webuntis-monitor/actions/workflows/monitor.yml).
    Klicke **Run workflow → Run workflow** auf main.
 5. Erfolg bedeutet: Tests und Monitor sind grün **und** die Initialisierungsnachricht ist auf dem iPhone angekommen.
-   Vergleiche sind zu jeder vollen Stunde (Europe/Berlin) geplant. Sonntags ist für 09:00 Uhr zusätzlich eine Testmail nach erfolgreicher Prüfung vorgesehen.
+   Vergleiche sind zu jeder vollen Stunde (Europe/Berlin) geplant. Sonntags verschickt der erste erfolgreiche geplante Abruf ab 09:00 Uhr zusätzlich eine Testmail. Ein gespeicherter Versandmarker unterdrückt weitere Testmails am selben Sonntag.
    Die erste Nachricht bestätigt die Initialisierung, nicht eine Stundenplanänderung.
 
 Zugangsdaten niemals in Issues, Chat, Code, Screenshots oder Commit-Dateien schreiben.
